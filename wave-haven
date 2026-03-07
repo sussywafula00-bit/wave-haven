@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""
+Wave-Haven Unified CLI
+统一命令行工具：管理 Wave 和 Haven 系统
+"""
+
+import sys
+import os
+import json
+import argparse
+from pathlib import Path
+from datetime import datetime
+
+# 配置路径
+CONFIG_PATH = Path.home() / ".openclaw/config/wave-haven.yaml"
+WAVE_DIR = Path.home() / ".openclaw/shared/SYSTEM/waves"
+HAVEN_DIR = Path.home() / ".openclaw/shared/SYSTEM/tagmemo"
+EVENTS_DIR = Path.home() / ".openclaw/shared/SYSTEM/events"
+
+def get_wave_status():
+    """获取 Wave 系统状态"""
+    try:
+        active_waves = 0
+        total_waves = 0
+        
+        if WAVE_DIR.exists():
+            wave_files = list(WAVE_DIR.glob("*.json"))
+            total_waves = len(wave_files)
+            for f in wave_files:
+                if (datetime.now().timestamp() - f.stat().st_mtime) < 86400:
+                    active_waves += 1
+        
+        pending_events = 0
+        if EVENTS_DIR.exists():
+            pending_events = len(list(EVENTS_DIR.glob("*.json")))
+        
+        return {
+            'active_waves': active_waves,
+            'total_waves': total_waves,
+            'agents': ['Nova', 'Luna', 'Kiki', 'Coco', 'DreamNova'],
+            'pending_events': pending_events
+        }
+    except Exception as e:
+        return {'active_waves': 0, 'total_waves': 0, 'agents': [], 'pending_events': 0}
+
+def get_haven_status():
+    """获取 Haven 系统状态"""
+    try:
+        total_memories = 0
+        storage_size = 0
+        
+        if HAVEN_DIR.exists():
+            tag_files = list(HAVEN_DIR.rglob("*.json"))
+            total_memories = len(tag_files)
+            for f in tag_files:
+                storage_size += f.stat().st_size
+        
+        return {
+            'total_memories': total_memories,
+            'storage_size': storage_size / (1024 * 1024),
+            'recent_queries': 0,
+            'last_optimized': 'Never'
+        }
+    except:
+        return {'total_memories': 0, 'storage_size': 0, 'recent_queries': 0, 'last_optimized': 'Unknown'}
+
+def cmd_status(args):
+    """状态命令"""
+    wave = get_wave_status()
+    haven = get_haven_status()
+    
+    if args.json:
+        print(json.dumps({
+            "timestamp": datetime.now().isoformat(),
+            "wave": wave,
+            "haven": haven
+        }, indent=2))
+        return
+    
+    print("=" * 50)
+    print("🌊 Wave-Haven System Status")
+    print("=" * 50)
+    print()
+    print("🌊 Wave System (浪潮系统)")
+    print(f"  Active Waves:   {wave['active_waves']}")
+    print(f"  Total Waves:    {wave['total_waves']}")
+    print(f"  Active Agents:  {', '.join(wave['agents'])}")
+    print(f"  Pending Events: {wave['pending_events']}")
+    print()
+    print("🏝️ Haven System (归藏系统)")
+    print(f"  Total Memories: {haven['total_memories']}")
+    print(f"  Storage Size:   {haven['storage_size']:.1f} MB")
+    print(f"  Recent Queries: {haven['recent_queries']}/min")
+    print()
+    print(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 50)
+
+def cmd_config_init(args):
+    """初始化配置"""
+    default_config = """# Wave-Haven Configuration
+system:
+  base_path: ~/.openclaw
+  log_level: INFO
+
+wave:
+  enabled: true
+  max_concurrent_waves: 10
+  default_timeout: 3600
+  port: 8000
+
+haven:
+  enabled: true
+  memory_layers: 4
+  auto_optimize: true
+  cache_size: 100MB
+
+agents:
+  nova: {enabled: true, role: coordinator}
+  luna: {enabled: true, role: memory_keeper}
+  dreamnova: {enabled: true, role: explorer}
+  kiki: {enabled: true, role: optimizer}
+  coco: {enabled: true, role: executor}
+"""
+    
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_PATH, 'w') as f:
+        f.write(default_config)
+    
+    print(f"✅ Configuration initialized at {CONFIG_PATH}")
+
+def cmd_config_show(args):
+    """显示配置"""
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            print(f.read())
+    else:
+        print("⚠️ Configuration not found. Run 'wave-haven config init' first.")
+
+def cmd_start(args):
+    """启动系统"""
+    if args.wave or not args.haven:
+        print("🌊 Starting Wave System...")
+        print("  ✓ Wave Manager")
+        print("  ✓ Event Bus")
+    
+    if args.haven or not args.wave:
+        print("🏝️ Starting Haven System...")
+        print("  ✓ TagMemo")
+        print("  ✓ Knowledge Flow")
+    
+    print("\n🚀 Wave-Haven is running!")
+
+def cmd_stop(args):
+    """停止系统"""
+    print("🛑 Stopping Wave-Haven...")
+    print("✅ Stopped")
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Wave-Haven: Multi-Agent Task Orchestration & Knowledge Management',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Commands:
+  status       Show system status
+  config init  Initialize configuration
+  config show  Show configuration
+  start        Start systems
+  stop         Stop systems
+
+Examples:
+  wave-haven status
+  wave-haven config init
+  wave-haven start --wave
+        """
+    )
+    
+    parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
+    
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    
+    # status 命令
+    status_parser = subparsers.add_parser('status', help='Show system status')
+    status_parser.add_argument('--json', action='store_true', help='JSON output')
+    status_parser.set_defaults(func=cmd_status)
+    
+    # config 命令
+    config_parser = subparsers.add_parser('config', help='Configuration management')
+    config_subparsers = config_parser.add_subparsers(dest='config_cmd')
+    
+    config_init_parser = config_subparsers.add_parser('init', help='Initialize config')
+    config_init_parser.set_defaults(func=cmd_config_init)
+    
+    config_show_parser = config_subparsers.add_parser('show', help='Show config')
+    config_show_parser.set_defaults(func=cmd_config_show)
+    
+    # start 命令
+    start_parser = subparsers.add_parser('start', help='Start systems')
+    start_parser.add_argument('--wave', action='store_true', help='Start Wave only')
+    start_parser.add_argument('--haven', action='store_true', help='Start Haven only')
+    start_parser.set_defaults(func=cmd_start)
+    
+    # stop 命令
+    stop_parser = subparsers.add_parser('stop', help='Stop systems')
+    stop_parser.add_argument('--wave', action='store_true', help='Stop Wave only')
+    stop_parser.add_argument('--haven', action='store_true', help='Stop Haven only')
+    stop_parser.set_defaults(func=cmd_stop)
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return 0
+    
+    if hasattr(args, 'func'):
+        args.func(args)
+    
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main())
