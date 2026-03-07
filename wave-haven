@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Wave-Haven Unified CLI
+Wave-Haven Unified CLI - v2.0
 统一命令行工具：管理 Wave 和 Haven 系统
+Version: 2.0.0 - 新增 Wave 任务管理
 """
 
 import sys
@@ -9,7 +10,15 @@ import os
 import json
 import argparse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# 导入 Wave 模型
+try:
+    from wave_model import Wave, WaveManager, WaveStatus, WavePriority
+except ImportError:
+    # 如果导入失败，添加路径
+    sys.path.insert(0, str(Path(__file__).parent))
+    from wave_model import Wave, WaveManager, WaveStatus, WavePriority
 
 # 配置路径
 CONFIG_PATH = Path.home() / ".openclaw/config/wave-haven.yaml"
@@ -17,28 +26,18 @@ WAVE_DIR = Path.home() / ".openclaw/shared/SYSTEM/waves"
 HAVEN_DIR = Path.home() / ".openclaw/shared/SYSTEM/tagmemo"
 EVENTS_DIR = Path.home() / ".openclaw/shared/SYSTEM/events"
 
+# 初始化 WaveManager
+wave_manager = WaveManager()
+
 def get_wave_status():
     """获取 Wave 系统状态"""
     try:
-        active_waves = 0
-        total_waves = 0
-        
-        if WAVE_DIR.exists():
-            wave_files = list(WAVE_DIR.glob("*.json"))
-            total_waves = len(wave_files)
-            for f in wave_files:
-                if (datetime.now().timestamp() - f.stat().st_mtime) < 86400:
-                    active_waves += 1
-        
-        pending_events = 0
-        if EVENTS_DIR.exists():
-            pending_events = len(list(EVENTS_DIR.glob("*.json")))
-        
+        stats = wave_manager.get_stats()
         return {
-            'active_waves': active_waves,
-            'total_waves': total_waves,
+            'active_waves': stats.get('running', 0),
+            'total_waves': stats.get('total', 0),
             'agents': ['Nova', 'Luna', 'Kiki', 'Coco', 'DreamNova'],
-            'pending_events': pending_events
+            'pending_events': stats.get('pending', 0)
         }
     except Exception as e:
         return {'active_waves': 0, 'total_waves': 0, 'agents': [], 'pending_events': 0}
@@ -74,7 +73,7 @@ def cmd_status(args):
             "timestamp": datetime.now().isoformat(),
             "wave": wave,
             "haven": haven
-        }, indent=2))
+        }, indent=2, ensure_ascii=False))
         return
     
     print("=" * 50)
@@ -95,6 +94,155 @@ def cmd_status(args):
     print(f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 50)
 
+# ============ Wave 命令 ============
+def cmd_wave_create(args):
+    """创建 Wave"""
+    agents = args.agents.split(',') if args.agents else ['nova']
+    
+    # 解析 deadline
+    deadline = None
+    if args.deadline:
+        try:
+            deadline = datetime.fromisoformat(args.deadline)
+        except:
+            print(f"⚠️ Invalid deadline format. Use ISO format: 2026-03-10T23:59:00")
+            return
+    
+    wave = wave_manager.create_wave(
+        name=args.name,
+        description=args.description or "",
+        agents=agents,
+        priority=args.priority,
+        deadline=deadline
+    )
+    
+    print(f"✅ Wave created successfully!")
+    print()
+    print(f"🌊 {wave.id}: {wave.name}")
+    print(f"   Status: {wave.get_status_icon()} {wave.status.value}")
+    print(f"   Priority: {wave.get_priority_icon()} {wave.priority.value}")
+    print(f"   Agents: {', '.join(wave.agents)}")
+    if wave.deadline:
+        print(f"   Deadline: {wave.deadline.strftime('%Y-%m-%d %H:%M')}")
+
+def cmd_wave_list(args):
+    """列出 Waves"""
+    status_filter = None
+    if args.status:
+        try:
+            status_filter = WaveStatus(args.status)
+        except:
+            pass
+    
+    waves = wave_manager.list_waves(status=status_filter, agent=args.agent, limit=args.limit)
+    
+    if not waves:
+        print("📭 No waves found.")
+        return
+    
+    # 打印表格
+    print("┌" + "─" * 8 + "┬" + "─" * 20 + "┬" + "─" * 10 + "┬" + "─" * 15 + "┬" + "─" * 10 + "┐")
+    print(f"│{'ID':^8}│{'Name':^20}│{'Status':^10}│{'Agents':^15}│{'Progress':^10}│")
+    print("├" + "─" * 8 + "┼" + "─" * 20 + "┼" + "─" * 10 + "┼" + "─" * 15 + "┼" + "─" * 10 + "┤")
+    
+    for wave in waves:
+        name = wave.name[:18] + ".." if len(wave.name) > 20 else wave.name
+        agents = ", ".join(wave.agents)[:13] + ".." if len(", ".join(wave.agents)) > 15 else ", ".join(wave.agents)
+        print(f"│{wave.id:^8}│{name:20}│{wave.get_status_icon() + ' ' + wave.status.value[:8]:^10}│{agents:15}│{wave.progress:>5.0f}%{' '*4}│")
+    
+    print("└" + "─" * 8 + "┴" + "─" * 20 + "┴" + "─" * 10 + "┴" + "─" * 15 + "┴" + "─" * 10 + "┘")
+    print(f"\nTotal: {len(waves)} waves")
+
+def cmd_wave_show(args):
+    """显示 Wave 详情"""
+    wave = wave_manager.get_wave(args.wave_id)
+    if not wave:
+        print(f"❌ Wave {args.wave_id} not found.")
+        return
+    
+    print()
+    print(f"🌊 {wave.id}: {wave.name}")
+    print("=" * 50)
+    print(f"Status:     {wave.get_status_icon()} {wave.status.value} ({wave.progress:.0f}%)")
+    print(f"Priority:   {wave.get_priority_icon()} {wave.priority.value}")
+    print(f"Agents:     {', '.join(wave.agents)}")
+    print(f"Created:    {wave.created_at.strftime('%Y-%m-%d %H:%M')}")
+    
+    if wave.started_at:
+        print(f"Started:    {wave.started_at.strftime('%Y-%m-%d %H:%M')}")
+    
+    if wave.completed_at:
+        print(f"Completed:  {wave.completed_at.strftime('%Y-%m-%d %H:%M')}")
+    
+    if wave.deadline:
+        overdue = " 🔴 OVERDUE" if wave.is_overdue() else ""
+        print(f"Deadline:   {wave.deadline.strftime('%Y-%m-%d %H:%M')}{overdue}")
+    
+    duration = wave.get_duration()
+    if duration:
+        print(f"Duration:   {duration}")
+    
+    # 进度条
+    print()
+    print("Progress:")
+    filled = int(wave.progress / 5)
+    bar = "█" * filled + "░" * (20 - filled)
+    print(f"  [{bar}] {wave.progress:.0f}%")
+    
+    # 最近事件
+    if wave.events:
+        print()
+        print("Recent Events:")
+        for event in wave.events[-5:]:
+            ts = event['timestamp'][:19] if len(event['timestamp']) > 19 else event['timestamp']
+            print(f"  [{ts}] {event['agent']}: {event['message']}")
+    
+    print()
+
+def cmd_wave_update(args):
+    """更新 Wave"""
+    wave = wave_manager.get_wave(args.wave_id)
+    if not wave:
+        print(f"❌ Wave {args.wave_id} not found.")
+        return
+    
+    if args.progress is not None:
+        wave.update_progress(args.progress, args.agent or "system")
+    
+    wave_manager.update_wave(wave)
+    print(f"✅ Wave {args.wave_id} updated.")
+
+def cmd_wave_complete(args):
+    """完成 Wave"""
+    wave = wave_manager.get_wave(args.wave_id)
+    if not wave:
+        print(f"❌ Wave {args.wave_id} not found.")
+        return
+    
+    wave.complete(success=not args.fail)
+    wave_manager.update_wave(wave)
+    status = "completed" if not args.fail else "failed"
+    print(f"✅ Wave {args.wave_id} marked as {status}.")
+
+def cmd_wave_cancel(args):
+    """取消 Wave"""
+    wave = wave_manager.get_wave(args.wave_id)
+    if not wave:
+        print(f"❌ Wave {args.wave_id} not found.")
+        return
+    
+    wave.cancel()
+    wave_manager.update_wave(wave)
+    print(f"✅ Wave {args.wave_id} cancelled.")
+
+def cmd_wave_delete(args):
+    """删除 Wave"""
+    if wave_manager.delete_wave(args.wave_id):
+        print(f"✅ Wave {args.wave_id} deleted.")
+    else:
+        print(f"❌ Wave {args.wave_id} not found.")
+
+# ============ Config 命令 ============
 def cmd_config_init(args):
     """初始化配置"""
     default_config = """# Wave-Haven Configuration
@@ -161,20 +309,28 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:
-  status       Show system status
-  config init  Initialize configuration
-  config show  Show configuration
-  start        Start systems
-  stop         Stop systems
+  status              Show system status
+  wave create         Create new wave
+  wave list           List waves
+  wave show           Show wave details
+  wave update         Update wave progress
+  wave complete       Complete wave
+  wave cancel         Cancel wave
+  wave delete         Delete wave
+  config init         Initialize configuration
+  config show         Show configuration
+  start               Start systems
+  stop                Stop systems
 
 Examples:
   wave-haven status
-  wave-haven config init
-  wave-haven start --wave
+  wave-haven wave create "分析数据" --agents nova,luna --priority high
+  wave-haven wave list
+  wave-haven wave show W001
         """
     )
     
-    parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
+    parser.add_argument('--version', action='version', version='%(prog)s 2.0.0')
     
     subparsers = parser.add_subparsers(dest='command', help='Commands')
     
@@ -182,6 +338,56 @@ Examples:
     status_parser = subparsers.add_parser('status', help='Show system status')
     status_parser.add_argument('--json', action='store_true', help='JSON output')
     status_parser.set_defaults(func=cmd_status)
+    
+    # wave 命令组
+    wave_parser = subparsers.add_parser('wave', help='Wave management')
+    wave_subparsers = wave_parser.add_subparsers(dest='wave_cmd', help='Wave commands')
+    
+    # wave create
+    wave_create_parser = wave_subparsers.add_parser('create', help='Create new wave')
+    wave_create_parser.add_argument('name', help='Wave name')
+    wave_create_parser.add_argument('--description', '-d', help='Wave description')
+    wave_create_parser.add_argument('--agents', '-a', help='Agents (comma-separated)')
+    wave_create_parser.add_argument('--priority', '-p', default='medium', 
+                                   choices=['low', 'medium', 'high', 'urgent'],
+                                   help='Wave priority')
+    wave_create_parser.add_argument('--deadline', help='Deadline (ISO format: 2026-03-10T23:59:00)')
+    wave_create_parser.set_defaults(func=cmd_wave_create)
+    
+    # wave list
+    wave_list_parser = wave_subparsers.add_parser('list', help='List waves')
+    wave_list_parser.add_argument('--status', '-s', help='Filter by status')
+    wave_list_parser.add_argument('--agent', help='Filter by agent')
+    wave_list_parser.add_argument('--limit', '-n', type=int, default=100, help='Limit results')
+    wave_list_parser.set_defaults(func=cmd_wave_list)
+    
+    # wave show
+    wave_show_parser = wave_subparsers.add_parser('show', help='Show wave details')
+    wave_show_parser.add_argument('wave_id', help='Wave ID')
+    wave_show_parser.set_defaults(func=cmd_wave_show)
+    
+    # wave update
+    wave_update_parser = wave_subparsers.add_parser('update', help='Update wave progress')
+    wave_update_parser.add_argument('wave_id', help='Wave ID')
+    wave_update_parser.add_argument('--progress', type=float, help='Progress (0-100)')
+    wave_update_parser.add_argument('--agent', help='Agent name')
+    wave_update_parser.set_defaults(func=cmd_wave_update)
+    
+    # wave complete
+    wave_complete_parser = wave_subparsers.add_parser('complete', help='Complete wave')
+    wave_complete_parser.add_argument('wave_id', help='Wave ID')
+    wave_complete_parser.add_argument('--fail', action='store_true', help='Mark as failed')
+    wave_complete_parser.set_defaults(func=cmd_wave_complete)
+    
+    # wave cancel
+    wave_cancel_parser = wave_subparsers.add_parser('cancel', help='Cancel wave')
+    wave_cancel_parser.add_argument('wave_id', help='Wave ID')
+    wave_cancel_parser.set_defaults(func=cmd_wave_cancel)
+    
+    # wave delete
+    wave_delete_parser = wave_subparsers.add_parser('delete', help='Delete wave')
+    wave_delete_parser.add_argument('wave_id', help='Wave ID')
+    wave_delete_parser.set_defaults(func=cmd_wave_delete)
     
     # config 命令
     config_parser = subparsers.add_parser('config', help='Configuration management')
