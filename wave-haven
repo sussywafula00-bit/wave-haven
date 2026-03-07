@@ -303,6 +303,89 @@ def cmd_stop(args):
     print("🛑 Stopping Wave-Haven...")
     print("✅ Stopped")
 
+# ============ Haven 命令 (第二阶段) ============
+def cmd_haven_search(args):
+    """Haven 知识搜索"""
+    try:
+        from haven_knowledge import HavenKnowledgeManager
+        haven = HavenKnowledgeManager()
+        results = haven.search(args.query, top_k=args.limit)
+        
+        if not results:
+            print(f"🔍 No results found for '{args.query}'")
+            return
+        
+        print(f"🔍 Search Results for '{args.query}' ({len(results)} found)")
+        print("=" * 60)
+        
+        for i, r in enumerate(results, 1):
+            print(f"\n{i}. [{r['score']:.0f}% match] {r['title']}")
+            print(f"   📁 {r['file']}")
+            print(f"   📝 {r['preview']}")
+            if r['tags']:
+                print(f"   🏷️  {' '.join(r['tags'])}")
+            print(f"   📅 Modified: {r['modified']}")
+        
+        print()
+        
+    except Exception as e:
+        print(f"❌ Search error: {e}")
+
+def cmd_haven_stats(args):
+    """Haven 统计信息"""
+    try:
+        from haven_knowledge import HavenKnowledgeManager
+        haven = HavenKnowledgeManager()
+        stats = haven.get_stats()
+        
+        print("📊 Haven Knowledge Statistics")
+        print("=" * 40)
+        print(f"Total Memories:     {stats['total_memories']}")
+        print(f"Storage Size:       {stats['total_storage_mb']:.2f} MB")
+        print(f"Recent (7 days):    {stats['recent_7days']}")
+        print(f"Recent (30 days):   {stats['recent_30days']}")
+        
+        if stats['by_type']:
+            print("\nBy Type:")
+            for ext, count in sorted(stats['by_type'].items(), key=lambda x: -x[1])[:5]:
+                print(f"  {ext or 'no_ext'}: {count}")
+        
+        if stats['top_tags']:
+            print("\nTop Tags:")
+            for tag, count in stats['top_tags'][:5]:
+                print(f"  {tag}: {count}")
+        
+        print()
+        
+    except Exception as e:
+        print(f"❌ Stats error: {e}")
+
+def cmd_haven_recent(args):
+    """Haven 最近知识"""
+    try:
+        from haven_knowledge import HavenKnowledgeManager
+        haven = HavenKnowledgeManager()
+        recent = haven.get_recent(days=args.days, limit=args.limit)
+        
+        if not recent:
+            print(f"📭 No recent knowledge in the last {args.days} days.")
+            return
+        
+        print(f"📚 Recent Knowledge (last {args.days} days)")
+        print("=" * 60)
+        
+        for item in recent:
+            print(f"\n📄 {item['title']}")
+            print(f"   📁 {item['file']}")
+            print(f"   📅 {item['modified']}")
+            if item['tags']:
+                print(f"   🏷️  {' '.join(item['tags'])}")
+        
+        print()
+        
+    except Exception as e:
+        print(f"❌ Recent error: {e}")
+
 def main():
     parser = argparse.ArgumentParser(
         description='Wave-Haven: Multi-Agent Task Orchestration & Knowledge Management',
@@ -317,6 +400,9 @@ Commands:
   wave complete       Complete wave
   wave cancel         Cancel wave
   wave delete         Delete wave
+  haven search        Search knowledge
+  haven stats         Show knowledge statistics
+  haven recent        Show recent knowledge
   config init         Initialize configuration
   config show         Show configuration
   start               Start systems
@@ -327,10 +413,12 @@ Examples:
   wave-haven wave create "分析数据" --agents nova,luna --priority high
   wave-haven wave list
   wave-haven wave show W001
+  wave-haven haven search "project requirements"
+  wave-haven haven stats
         """
     )
     
-    parser.add_argument('--version', action='version', version='%(prog)s 2.0.0')
+    parser.add_argument('--version', action='version', version='%(prog)s 2.1.0')
     
     subparsers = parser.add_subparsers(dest='command', help='Commands')
     
@@ -410,6 +498,26 @@ Examples:
     stop_parser.add_argument('--wave', action='store_true', help='Stop Wave only')
     stop_parser.add_argument('--haven', action='store_true', help='Stop Haven only')
     stop_parser.set_defaults(func=cmd_stop)
+    
+    # haven 命令组 (第二阶段)
+    haven_parser = subparsers.add_parser('haven', help='Haven knowledge management')
+    haven_subparsers = haven_parser.add_subparsers(dest='haven_cmd', help='Haven commands')
+    
+    # haven search
+    haven_search_parser = haven_subparsers.add_parser('search', help='Search knowledge')
+    haven_search_parser.add_argument('query', help='Search query')
+    haven_search_parser.add_argument('--limit', '-n', type=int, default=10, help='Limit results')
+    haven_search_parser.set_defaults(func=cmd_haven_search)
+    
+    # haven stats
+    haven_stats_parser = haven_subparsers.add_parser('stats', help='Show knowledge statistics')
+    haven_stats_parser.set_defaults(func=cmd_haven_stats)
+    
+    # haven recent
+    haven_recent_parser = haven_subparsers.add_parser('recent', help='Show recent knowledge')
+    haven_recent_parser.add_argument('--days', '-d', type=int, default=7, help='Days to look back')
+    haven_recent_parser.add_argument('--limit', '-n', type=int, default=20, help='Limit results')
+    haven_recent_parser.set_defaults(func=cmd_haven_recent)
     
     args = parser.parse_args()
     
