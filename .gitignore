@@ -51,6 +51,13 @@ logs/
 .env.local
 config.local.yaml
 
+# Secret & Key Files
+*.key
+*.pem
+*.secret
+id_rsa
+id_rsa.pub
+
 # Data directories (user data)
 data/
 waves/
