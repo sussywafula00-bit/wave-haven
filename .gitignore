@@ -65,3 +65,4 @@ tmp/
 # Backup files
 *.backup
 *.bak
+.env
