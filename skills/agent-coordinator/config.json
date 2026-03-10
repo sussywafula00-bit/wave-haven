@@ -1,0 +1,12 @@
+{
+  "default_timeout": 60,
+  "max_retries": 2,
+  "context_max_length": 2000,
+  "preferred_agents": {
+    "analysis": "dreamnova",
+    "optimization": "kiki",
+    "execution": "coco",
+    "clinical": "iris",
+    "memory": "luna"
+  }
+}
